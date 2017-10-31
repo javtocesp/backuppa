@@ -36,15 +36,14 @@ class r2d2(object):
       SMTP_PORT=""
       MAIL_FROM=""
       MAIL_TO=""
+      PATH_TO_FW_LIST=""
+      WORKING_DIRECTORY=""
 
-      def __init__(self):
-      	 logging.info('Leyendo File de entrada fwlist.txt')
-         fwlist=open('fwlist.txt','r')
-      
       def loadsecrets(self):
-          with open ('shellvar.json') as data_file:
+          logging.info('Cargando entorno y keys')
+          PATH_TO_JSON="/scripts/r2d2/shellvar.json"
+          with open (PATH_TO_JSON) as data_file:
                data =json.load (data_file) 
-          
           self.PA_TOKEN=data["PA_TOKEN"]
           self.MY_KEY=data["MY_KEY"]
           self.MY_SECRET=data["MY_SECRET"]
@@ -53,9 +52,12 @@ class r2d2(object):
           self.SMTP_PORT=data["SMTP_PORT"]
           self.MAIL_FROM=data["MAIL_FROM"] 
           self.MAIL_TO=data["MAIL_TO"]
+          self.PATH_TO_FW_LIST=data["PATH_TO_FW_LIST"]
+          self.WORKING_DIRECTORY=data["WORKING_DIRECTORY"]
 
       def loadlistfws(self):
-            fwlist=open('fwlist.txt','r')
+            logging.info('Leyendo File de entrada fwlist.txt')  
+            fwlist=open("/scripts/r2d2/fwlist.txt",'r')
             lineamela=""
             for line in fwlist:
                   lineamela=line.replace('\n', ' ')
@@ -69,9 +71,9 @@ class r2d2(object):
       def getconfig(self):
             for fw in self.r2list:
                   if not self.testconnection1(fw):
-                        MESSAGE_TO_LOG="error en la conexin a ",fw
+                        MESSAGE_TO_LOG="Error en la conexin al firewall {}".format(fw)
                         print MESSAGE_TO_LOG
-                        logging.error('Error de conexion al firewall '+fw)
+                        logging.error(MESSAGE_TO_LOG)
                         self.errorlist.append(MESSAGE_TO_LOG)
 			continue
 
@@ -85,13 +87,14 @@ class r2d2(object):
                   else:
                         soup=BeautifulSoup(result,"html.parser")
                         for strong_tag in soup.find_all('msg'):
-                              MESSAGE_TO_LOG=str(strong_tag) +' in '+fw 
+                              MESSAGE_TO_LOG="Error descargando la config del firewall {}".format(fw)
+                              print MESSAGE_TO_LOG
                               self.errorlist.append(MESSAGE_TO_LOG) 
                               logging.error(MESSAGE_TO_LOG)
-			      print("Log_error_detected= {}".format(MESSAGE_TO_LOG))
       
       def compressconfig(self):
             COMPRESS_FILES="tar -jcvf `date +%Y%m%d_%H.%M.%S`.tar.bz2 *.xml"
+            logging.info("Comprimiendo Backups")
             result=subprocess.check_output(COMPRESS_FILES,shell=True)
             GET_LAST_FILE="ls -1t | head -n 1"
             result=subprocess.check_output(GET_LAST_FILE,shell=True)
@@ -119,6 +122,7 @@ class r2d2(object):
             self.cleanandleavethirty()
          
       def cleanandleavethirty (self):
+            #LISTCLEANFILES='ls -tl {} --time-style=full-iso  | awk \'{print $9}\' | grep bz2'.format(self.WORKING_DIRECTORY)
             LISTCLEANFILES='ls -tl /scripts/r2d2/ --time-style=full-iso  | awk \'{print $9}\' | grep bz2'
             result=subprocess.check_output(LISTCLEANFILES,shell=True)
             result=result.split('\n')
@@ -126,7 +130,7 @@ class r2d2(object):
                for file in result[30:]:
                    if 'bz2' in file:
                        print 'Archivo a borrar: ', file 
-                       BORRAR_FILE='rm /scripts/r2d2/{}'.format(file)
+                       BORRAR_FILE='rm {}/{}'.format(WORKING_DIRECTORY,file)
                        result=subprocess.check_output(BORRAR_FILE,shell=True) 	
                    
 
@@ -145,6 +149,7 @@ class r2d2(object):
       def check_and_send_errors(self):
           MAIL_BODY="Se detectaron los siguientes errores en la realizacion de los backups: \n\n\n"
           if self.errorlist:
+             logging.info("Enviando mails con errores...")
              for error in self.errorlist:
                  MAIL_BODY+=error+'\n'
              print "BODY: {}".format(MAIL_BODY)
@@ -162,12 +167,13 @@ class r2d2(object):
           msg.attach( MIMEText(text,'plain') )
           smtp = smtplib.SMTP(self.SMTP_SERVER,int(self.SMTP_PORT))
           smtp.sendmail(send_from, destino, msg.as_string())
+          logging.info("Mail Enviado.")
           smtp.close()
 
 def main():
       robot=r2d2()
-      robot.loadlistfws()
       robot.loadsecrets()
+      robot.loadlistfws()
       robot.getconfig()
       print "Comprimiendo"
       filezip=robot.compressconfig()
